@@ -1,5 +1,5 @@
 # k3s-course
-Rancher K3s 课程学习
+# Rancher K3s 课程学习
 
 K3s 是一个轻量级的 Kubernetes 发行版，它针对边缘计算、物联网等场景进行了高度优化。K3s 有以下增强功能：
 
@@ -18,3 +18,9 @@ K3s 是一个轻量级的 Kubernetes 发行版，它针对边缘计算、物联�
   - Ingress controller（Traefik）
   - 嵌入式服务负载均衡器（service load balancer）
   - 嵌入式网络策略控制器（network policy controller）
+  
+  # 参考官网地址：
+  
+  [K3s - 轻量级 Kubernetes | K3s](https://docs.k3s.io/zh/)
+  
+  [K3s - 轻量级 Kubernetes | Rancher文档](http://docs.rancher.cn/docs/k3s/_index)

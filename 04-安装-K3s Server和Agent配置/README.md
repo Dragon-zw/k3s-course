@@ -137,6 +137,14 @@ users:
 | --snapshotter value                | N/A                                | 覆盖默认的 containerd 快照程序 (默认: "overlayfs") |
 | --private-registry value           | "/etc/rancher/k3s/registries.yaml" | 私有镜像仓库配置文件                               |
 
+在 K3s 节点上安装 Docker。可以使用 Rancher 的一个[Docker 安装脚本](https://github.com/rancher/install-docker)来安装 Docker：
+
+```shell
+curl https://releases.rancher.com/install-docker/19.03.sh | sh
+```
+
+国内用户，可以使用以下方法加速安装：
+
 ```shell
 $ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
   INSTALL_K3S_EXEC="--docker" \
