@@ -1,4 +1,3 @@
-```yaml
 ---
 # Source: calico/templates/calico-config.yaml
 # This ConfigMap is used to configure a self-hosted Calico installation.
@@ -3685,7 +3684,7 @@ spec:
             # chosen from this range. Changing this value after installation will have
             # no effect. This should fall within `--cluster-cidr`.
             - name: CALICO_IPV4POOL_CIDR
-              value: "192.168.200.0/24"
+              value: "192.168.200.0/16"
             # Disable file logging so `kubectl logs` works.
             - name: CALICO_DISABLE_FILE_LOGGING
               value: "true"
@@ -3889,4 +3888,4 @@ spec:
 
 ---
 # Source: calico/templates/configure-canal.yaml
-```
+
