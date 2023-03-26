@@ -638,6 +638,9 @@ $ curl -sfL https://get.k3s.io | sh -s - --kube-apiserver-arg "feature-gates=Rem
 或修改`k3s.service`的服务配置文件
 
 ```shell
+# 需要 reload 服务配置文件，然后进行 k3s 服务的重启
+# sudo systemctl daemon-reload && sudo systemctl restart k3s.service
+
 $ cat /etc/systemd/system/k3s.service
 ...
 ExecStart=/usr/local/bin/k3s \
