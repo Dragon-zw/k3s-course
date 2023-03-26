@@ -2,28 +2,44 @@ Video Reference：[15-网络](https://www.bilibili.com/video/BV1tZ4y1f7Bb/?spm_i
 
 GitHub README.md：[15-网络](https://github.com/kingsd041/k3s-tutorial/tree/main/15-网络)
 
+官方文档资料：https://docs.k3s.io/zh/networking
+
 # 1 网络
 
-本节课介绍了 CoreDNS、Traefik Ingress 控制器和 Klipper service load balancer 如何在 K3s 中工作。
+本节课介绍了 `CoreDNS`、`Traefik Ingress` 控制器和 `Klipper service load balancer` 如何在 K3s 中工作。
 
 关于 Flannel 配置选项和后端选择，或如何设置自己的 CNI，请参考 [安装网络选项](http://docs.rancher.cn/docs/k3s/installation/network-options/_index) 页面。
 
 关于 K3s 需要开放哪些端口，请参考 [安装要求](http://docs.rancher.cn/docs/k3s/installation/installation-requirements/_index#网络)。
 
-| 协议 | 端口      | 源                       | 描述                                          |
-| ---- | --------- | ------------------------ | --------------------------------------------- |
-| TCP  | 6443      | K3s agent 节点           | Kubernetes API Server                         |
-| UDP  | 8472      | K3s server 和 agent 节点 | 仅对 Flannel VXLAN 需要                       |
-| UDP  | 51820     | K3s server 和 agent 节点 | 只有 Flannel Wireguard 后端需要               |
-| UDP  | 51821     | K3s server 和 agent 节点 | 只有使用 IPv6 的 Flannel Wireguard 后端才需要 |
-| TCP  | 10250     | K3s server 和 agent 节点 | Kubelet metrics                               |
-| TCP  | 2379-2380 | K3s server 节点          | 只有嵌入式 etcd 高可用才需要                  |
+K3s server 需要 6443 端口才能被所有节点访问。
+
+当使用 Flannel VXLAN 时，节点需要能够通过 UDP 端口 8472 访问其他节点，或者当使用 Flannel Wireguard 后端时，节点需要能够通过 UDP 端口 51820 和 51821（使用 IPv6 时）访问其他节点。该节点不应侦听任何其他端口。 K3s 使用反向隧道，以便节点与服务器建立出站连接，并且所有 kubelet 流量都通过该隧道运行。但是，如果你不使用 Flannel 并提供自己的自定义 CNI，那么 K3s 不需要 Flannel 所需的端口。
+
+如果要使用metrics server，则需要在每个节点上打开端口 10250 端口。
+
+如果计划使用嵌入式 etcd 实现高可用性，则 server 节点必须在端口 2379 和 2380 上可以相互访问。
+
+##### 💡重要
+
+节点上的 VXLAN 端口不应公开暴露，因为它公开了集群网络，任何人都可以访问它。应在禁止访问端口 8472 的防火墙/安全组后面运行节点。
+
+**⚠️警告：** Flannel 依靠 [Bridge CNI plugin](https://www.cni.dev/plugins/current/main/bridge/) 来创建一个可以交换流量的 L2 网络。具有 NET_RAW 功能的 Rogue pod 可以滥用该 L2 网络来发动攻击，如 [ARP 欺骗](https://static.sched.com/hosted_files/kccncna19/72/ARP DNS spoof.pdf)。因此，正如 [kubernetes 文档](https://kubernetes.io/docs/concepts/security/pod-security-standards/)中记载的那样，请设置一个受限配置文件，在不可信任的 pod 上禁用 NET_RAW。
+
+| **协议** | **端口**  | **源**                   | **描述**                                      |
+| -------- | --------- | ------------------------ | --------------------------------------------- |
+| TCP      | 6443      | K3s agent 节点           | Kubernetes API Server                         |
+| UDP      | 8472      | K3s server 和 agent 节点 | 仅对 Flannel VXLAN 需要                       |
+| UDP      | 51820     | K3s server 和 agent 节点 | 只有 Flannel Wireguard 后端需要               |
+| UDP      | 51821     | K3s server 和 agent 节点 | 只有使用 IPv6 的 Flannel Wireguard 后端才需要 |
+| TCP      | 10250     | K3s server 和 agent 节点 | Kubelet metrics                               |
+| TCP      | 2379-2380 | K3s server 节点          | 只有嵌入式 etcd 高可用才需要                  |
 
 ## 1.1 💎CoreDNS
 
 CoreDNS 是在 agent 节点启动时部署的。要禁用，请在每台服务器上运行 `--disable coredns` 选项。
 
-如果你不安装 CoreDNS，你将需要自己安装一个集群 DNS 提供商。
+如果你不安装 CoreDNS，你将需要自己安装一个集群 DNS 提供商[ 需要手动部署 CoreDNS，一般实际使用并不会禁用 CoreDNS 功能 ]。
 
 ### 1.1.1 如何修改 coredns 参数
 
@@ -35,28 +51,35 @@ CoreDNS 是在 agent 节点启动时部署的。要禁用，请在每台服务�
 
 ```shell
 # K3s Master
-$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
+  INSTALL_K3S_EXEC="--docker" \
   INSTALL_K3S_VERSION="v1.21.14+k3s1" \
-  sh -
+  K3S_TOKEN="rancher" sh -
+
 # 查看Node状态
 $ kubectl get nodes
-NAME       STATUS   ROLES                  AGE   VERSION
-master01   Ready    control-plane,master   67s   v1.21.14+k3s
+NAME   STATUS   ROLES                  AGE   VERSION
+k3s1   Ready    control-plane,master   28s   v1.21.14+k3s1
+
 # 查看Token信息
 $ cat /var/lib/rancher/k3s/server/token
-K10dbbc5613e7a3ccc5fbac032657d3128d93cccaa3276102b47678b9afa40a1d5b::server:8b181d036bd00e92bec1d37f347214aa
+K10436aaa99ab2808a8a33f8737e0aea5bad9ed3a3afbababb11e68e982261f065a::server:rancher
 
 # K3s Worker
-$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
   K3S_URL=https://10.0.0.51:6443 \
-  K3S_TOKEN=8b181d036bd00e92bec1d37f347214aa INSTALL_K3S_VERSION="v1.21.14+k3s1" \
+  K3S_TOKEN=rancher \
+  INSTALL_K3S_VERSION="v1.21.14+k3s1" \
   INSTALL_K3S_EXEC="--node-ip=10.0.0.52" \
   sh -
+
 # 查看Node状态
 $ kubectl get nodes
-NAME       STATUS   ROLES                  AGE   VERSION
-master02   Ready    <none>                 55m   v1.21.14+k3s1
-master01   Ready    control-plane,master   58m   v1.21.14+k3s1
+NAME   STATUS   ROLES                  AGE     VERSION
+k3s1   Ready    control-plane,master   3m49s   v1.21.14+k3s1
+k3s2   Ready    <none>                 28s     v1.21.14+k3s1
 
 # 修改coredns.yaml文件
 $ cd /var/lib/rancher/k3s/server/manifests
@@ -72,22 +95,27 @@ Corefile: |
           fallthrough
         }
 [......]
+
 # 保存文件之后，就会类似于 kubectl apply -f coredns.yaml 重新引用该配置文件
 # kubectl get configmap coredns -n kube-system -o yaml
 ```
 
-![img](assets/1679577260163-62184ba1-ca2e-4451-a0e5-911059dc5c5b.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679577260163-62184ba1-ca2e-4451-a0e5-911059dc5c5b.png)
 
 范例：创建一个 Nginx Pod 进行测试
 
 ```shell
-# 下载镜像
+# 下载镜像(Containerd)
 $ ctr images pull --all-platforms docker.io/kingsd/nginx:install-tools
+# 下载镜像(Docker)
+$ docker pull docker.io/kingsd/nginx:install-tools
 
+# 运行Pod并查看Pod的状态
 $ kubectl run nginx --image=kingsd/nginx:install-tools
 $ kubectl get pod -o wide
-NAME    READY   STATUS    RESTARTS   AGE   IP          NODE       NOMINATED NODE   READINESS GATES
-nginx   1/1     Running   0          12m   10.42.1.3   master02   <none>           <none>
+NAME    READY   STATUS    RESTARTS   AGE   IP          NODE   NOMINATED NODE   READINESS GATES
+nginx   1/1     Running   0          69s   10.42.1.3   k3s2   <none>           <none>
+
 $ kubectl exec -it nginx -- ping -c 1 -W 1 k3s.test.org
 PING k3s.test.org (10.0.0.51) 56(84) bytes of data.
 64 bytes from master01 (10.0.0.51): icmp_seq=1 ttl=63 time=2.69 ms
@@ -97,9 +125,10 @@ PING k3s.test.org (10.0.0.51) 56(84) bytes of data.
 rtt min/avg/max/mdev = 2.692/2.692/2.692/0.000 ms
 ```
 
-当重启 k3s 集群时，会将修改后的`coredns.yaml`配置文件进行重新初始化成系统默认的配置。
+- 当重启 k3s 集群时，会将修改后的`coredns.yaml`配置文件进行重新初始化成系统默认的配置。
 
 ```shell
+# 重启k3s服务
 $ systemctl restart k3s.service
 # 重新查看之后就变成默认配置
 $ cat /var/lib/rancher/k3s/server/manifests/coredns.yaml
@@ -108,14 +137,15 @@ $ cat /var/lib/rancher/k3s/server/manifests/coredns.yaml
 $ cp -av /var/lib/rancher/k3s/server/manifests/coredns.yaml /tmp/cdns.yaml
 ```
 
-正确的做法
+- 正确的做法
 
 ```shell
 # 禁用coredns的功能
-$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
-  INSTALL_K3S_EXEC="--disable coredns" \
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
+  INSTALL_K3S_EXEC="--disable coredns --docker" \
   INSTALL_K3S_VERSION="v1.21.14+k3s1" \
-  sh -
+  K3S_TOKEN="rancher" sh -
 
 # 会发现已经没有该coredns.yaml配置文件
 $ ls -l /var/lib/rancher/k3s/server/manifests
@@ -128,9 +158,9 @@ drwx------ 2 root root  227 Mar 23 18:29 metrics-server
 
 # 可以查看Pod的运行情况
 $ kubectl get pod --all-namespaces
-
 # 编辑 cdns.yaml 文件
-$ cat /tmp/cdns.yaml
+# 类似于手动部署 CoreDNS 的方式
+$ vim /tmp/cdns.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -208,9 +238,11 @@ data:
         loadbalance
     }
   NodeHosts: |
-    10.0.0.51 ip-10-0-0-51
-    10.0.0.52 ip-10-0-0-52
-# 需要注意添加NodeHosts否则部署DNS会失败
+    10.0.0.51 k3s1
+    10.0.0.52 k3s2
+# 需要注意添加 NodeHosts否则部署DNS会失败
+# 其实NodeHosts在启动K3s集群之后，会默认生成key，因为这就是对应IP地址和对应的主机名
+# 不手动创建NodeHosts key的话会创建失败，原因就是找到该NodeHosts key
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -350,13 +382,15 @@ drwx------ 2 root root  227 Mar 23 18:29 metrics-server
 -rw------- 1 root root 1098 Mar 23 21:26 traefik.yaml
 
 # 查看是否已经创建好coredns的Pod
-$ kubectl get pod --all-namespaces
+$ kubectl get pod --all-namespaces | grep coredns
+kube-system   coredns-574bcc6c46-znlzf                  1/1     Running     0          5m17s
 
 # 进行测试
 $ kubectl run nginx --image=kingsd/nginx:install-tools
 $ kubectl get pod -o wide
-NAME    READY   STATUS    RESTARTS   AGE   IP           NODE       NOMINATED NODE   READINESS GATES
-nginx   1/1     Running   0          6s    10.42.1.11   master02   <none>           <none>
+NAME    READY   STATUS    RESTARTS   AGE   IP          NODE   NOMINATED NODE   READINESS GATES
+nginx   1/1     Running   0          17m   10.42.0.9   k3s1   <none>           <none>
+
 $ kubectl exec -it nginx -- ping -c 1 -W 1 k3s.test.org
 PING k3s.test.org (10.0.0.51) 56(84) bytes of data.
 64 bytes from ip-10-0-0-51 (10.0.0.51): icmp_seq=1 ttl=63 time=1.14 ms
@@ -373,18 +407,20 @@ $ cat /var/lib/rancher/k3s/server/manifests/cdns.yaml
 
 ## 1.2 💎Traefik Ingress Controller
 
-启动 server 时，默认情况下会部署 Traefik。默认的配置文件在`/var/lib/rancher/k3s/server/manifests/traefik.yaml`中，对该文件的任何修改都会以类似`kubectl apply`的方式自动部署到 Kubernetes 中。
+在 K3s 中，内置了 Traefik 作为集群的默认反向代理和 Ingress Controller。K3s 1.21 开始默认安装 Traefik v2，而之前的版本则默认安装 Traefik v1。本文将根据不同的 Traefik 版本来介绍如何启用 Traefik Dashborad。
 
-Traefik ingress controller 将使用主机上的 `80` 和 `443` 端口（即这些端口不能用于 HostPort 或 NodePort）。
+Traefik 是一个云原生的新型的 HTTP 反向代理、[负载均衡](https://cloud.tencent.com/product/clb?from=10680)软件，能轻易的部署微服务。k3s 将其作为集群的默认反向代理 和 Ingress Controller，但可视化面板是无法访问的。
+
+启动 server 时，默认情况下会部署 Traefik。默认的配置文件在`/var/lib/rancher/k3s/server/manifests/traefik.yaml`中，对该文件的任何修改都会以类似`kubectl apply`的方式自动部署到 Kubernetes 中。Traefik ingress controller 将使用主机上的 `80` 和 `443` 端口（即这些端口不能用于 HostPort 或 NodePort）。
 
 Traefik 可以通过编辑`traefik.yaml`文件进行配置。为了防止 k3s 使用或覆盖修改后的版本，请使用`--disable traefik`部署 k3s，并将修改后的副本存储在`k3s/server/manifests`目录中。更多信息请参考官方的 [Traefik 配置参数](https://github.com/helm/charts/tree/master/stable/traefik#configuration)。
 
-要禁用它，请使用`--disable traefik`选项启动每个 server。
+⚠️要禁用 Traefik，请使用`--disable traefik`选项启动每个 server。
 
 ```shell
-# 会发现并不会有进程监听80和443端口
+# 会发现并不会有进程监听80和443端口(Traefik Ingress Controller)
 $ netstat -auntlp | grep -E "80|443"
-# 主要是因为Traefik没有把80和443监听到主机上面，但是并不会影响其功能
+# 主要是因为Traefik没有把80和443监听到主机上，但是并不会影响其功能
 # Traefik主要是通过iptables的方式进行转发
 
 # 查看iptables规则
@@ -417,9 +453,40 @@ kube-system   traefik          LoadBalancer   10.43.154.214   10.0.0.51,10.0.0.5
 # 总结：Traefik通过这一系列的转发，由Traefik来处理下一跳的流量
 ```
 
-### 1.2.1 如何启用 Treafik2 dashboard：
+### 1.2.1 Traefik v1 启用 Dashborad
+
+默认情况下，K3s 1.20 及更早版本默认安装 Traefik v1，并且默认没有启用 Traefik Dashboard。如果要在 K3s 中启用 Traefik v1 的 Dashborad，我们可以借助 HelmChartConfig 来自定义由 Helm 部署的 Traefik v1 并启用 Dashboard：
+
+注意：
+
+- 不建议手动编辑 `/var/lib/rancher/K3s/server/manifests/traefik.yaml` 来修改 Traefik 配置文件，因为 K3s 重启后会覆盖修改的内容。
+- 建议通过在 `/var/lib/rancher/K3s/server/manifests` 中创建一个额外的 `HelmChartConfig`清单来自定义 Traefik 配置，请参考：`http://docs.rancher.cn/docs/K3s/helm/_index/`
 
 ```yaml
+cat >> /var/lib/rancher/K3s/server/manifests/traefik-config.yaml << EOF
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    dashboard:
+      enabled: true
+      domain: "traefik.localhost"
+EOF
+```
+
+此时，Traefik 将会重新部署，大约 10 秒钟左右，就可以通过 `**spec.valuesContent.domain**` 配置的域名来访问 Traefik Dashboard 了:
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679844609503-4b54aacf-da8b-4357-a19f-96717f62cdcc.png)
+
+### 1.2.2 如何启用 Treafik2 dashboard（可选）：
+
+默认情况下，K3s 1.21 及更高版本默认安装 Traefik v2。出于安全考虑，默认是不公开 Traefik Dashboard 的。
+
+```yaml
+# treafik2_dashboard.yaml
 # Note: in a kubernetes secret the string (e.g. generated by htpasswd) must be base64-encoded first.
 # To create an encoded user:password pair, the following command can be used:
 # htpasswd -nb admin      admin      | openssl base64
@@ -439,6 +506,8 @@ kind: IngressRoute
 metadata:
   name: traefik-dashboard
 spec:
+  entryPoints:
+    - traefik
   routes:
   - match: Host(`traefik.example.com`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
     kind: Rule
@@ -467,15 +536,60 @@ middleware.traefik.containo.us/auth created
 
 然后通过 http://traefik.example.com/dashboard/ 访问 traefik dashboard
 
-参考：
+👑要访问 Traefik 仪表板，请浏览到以下 URL。注意`**尾部斜杠**`很重要且需要，否则您将收到错误404。
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679846023231-6621e7ff-8deb-4231-bac0-a600a5e55587.png)
+
+### 1.2.3 👑Traefik v2 启用 Dashborad
+
+默认情况下，K3s 1.21 及更高版本默认安装 Traefik v2。出于安全考虑，默认是不公开 Traefik Dashboard 的。我们常见的公开 Dashborad 的方式主要为以下两种：
+
+#### 1.2.3.1 **方法 1：通过端口转发来实现**
+
+```shell
+kubectl port-forward  -n kube-system $(kubectl get pods -n kube-system| grep '^traefik-' | awk '{print $1}') --address 0.0.0.0 9000:9000
+```
+
+端口转发开启后，可以通过 `http://127.0.0.1:9000/dashboard/` 来访问 Dashboard：
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679846024912-1fc2c368-17f9-4d86-8ab8-53eeb94a5fc9.png)
+
+#### 1.2.3.2 **方法 2：自定义 IngressRoute CRD**
+
+另一种方法是通过定义和应用 IngressRoute CRD (`kubectl apply -f dashboard.yaml`)：
+
+```yaml
+# dashboard.yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`traefik.example`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      services:
+      - name: api@internal
+        kind: TraefikService
+```
+
+部署成功后，可通过 http://traefik.example/dashboard/ 访问 Dashboard：
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679846026668-4192e851-388c-40ff-871b-df6d20db1944.png)
+
+参考资料：
 
 https://doc.traefik.io/traefik/operations/dashboard/
 
 https://doc.traefik.io/traefik/middlewares/basicauth/#general
 
+https://www.jianshu.com/p/5e576b4545fc
+
 ## 1.3 💎Service Load Balancer
 
-K3s 提供了一个名为[Klipper Load Balancer](https://github.com/rancher/klipper-lb)的负载均衡器，它可以使用可用的主机端口。 允许创建 LoadBalancer 类型的 Service，但不包括 LB 的实现。某些 LB 服务需要云提供商，例如 Amazon EC2 或 Microsoft Azure。相比之下，K3s service LB 使得可以在没有云提供商的情况下使用 LB 服务。
+K3s 提供了一个名为 [Klipper Load Balancer](https://github.com/rancher/klipper-lb) 的负载均衡器，它可以使用可用的主机端口。 允许创建 LoadBalancer 类型的 Service，但不包括 LB 的实现。某些 LB 服务需要云提供商，例如 Amazon EC2 或 Microsoft Azure。相比之下，`K3s service LB 使得可以在没有云提供商的情况下使用 LB 服务`。
 
 ### 1.3.1 Service LB 如何工作
 
@@ -483,17 +597,15 @@ K3s 创建了一个控制器，该控制器为 service load balancer 创建了�
 
 对于每个 `service load balancer`，都会创建一个[DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)。 DaemonSet 在每个节点上创建一个前缀为svc的 Pod。
 
-Service LB 控制器会监听其他 Kubernetes Services。当它找到一个 Service 后，它会在所有节点上使用 DaemonSet 为该服务创建一个代理 Pod。这个 Pod 成为其他 Service 的代理，例如，来自节点上 8000 端口的请求可以被路由到端口 8888 上的工作负载。
+Service LB 控制器会监听其他 Kubernetes Services。当它找到一个 Service 后，它会在所有节点上使用 DaemonSet 为该服务创建一个代理 Pod。这个 Pod 成为其他 Service 的代理，例如，来自节点上 8000 端口的请求可以被路由到端口 8888 上的工作负载。[ 代理 Pod 主要的作用就是把流量转发到对应的Workload中 ]
 
-如果 Service LB 运行在有外部 IP 的节点上，则使用外部 IP。
-
-如果创建多个 Services，则为每个 Service 创建一个单独的 DaemonSet。
-
-只要使用不同的端口，就可以在同一节点上运行多个 Services。
+- 如果 Service LB 运行在有外部 IP 的节点上，则使用外部 IP。
+- 如果创建多个 Services，则为每个 Service 创建一个单独的 DaemonSet。
+- 只要使用不同的端口，就可以在同一节点上运行多个 Services。
 
 如果您尝试创建一个在 80 端口上监听的 Service LB，Service LB 将尝试在集群中找到 80 端口的空闲主机。如果该端口没有可用的主机，LB 将保持 Pending 状态。
 
-### 1.3.2 用法
+### 1.3.2 Service LB 用法
 
 在 K3s 中创建一个 [LoadBalancer 类型的 Service](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer)。
 
@@ -543,10 +655,12 @@ service/nginx created
 
 # svclb是分别部署到两个节点中
 $ kubectl get pod -o wide
-NAME                                READY   STATUS    RESTARTS   AGE    IP           NODE       NOMINATED NODE   READINESS GATES
-svclb-nginx-sjwcn                   1/1     Running   0          100s   10.42.1.12   master02   <none>           <none>
-svclb-nginx-q5jmr                   1/1     Running   0          100s   10.42.0.9    master01   <none>           <none>
-nginx-deployment-6b769f4497-hvvlx   1/1     Running   0          100s   10.42.0.8    master01   <none>           <none>
+NAME                                READY   STATUS    RESTARTS   AGE    IP           NODE   NOMINATED NODE   READINESS GATES
+svclb-nginx-wffxt                   1/1     Running   0          119s   10.42.0.17   k3s1   <none>           <none>
+nginx-deployment-6b769f4497-x82sp   1/1     Running   0          119s   10.42.0.16   k3s1   <none>           <none>
+svclb-nginx-s5jqw                   1/1     Running   0          119s   10.42.1.4    k3s2   <none>           <none
+[......]
+
 $ kubectl get svc nginx
 NAME    TYPE           CLUSTER-IP     EXTERNAL-IP           PORT(S)          AGE
 nginx   LoadBalancer   10.43.92.152   10.0.0.51,10.0.0.52   8888:30285/TCP   40s
@@ -577,51 +691,24 @@ Commercial support is available at
 <p><em>Thank you for using nginx.</em></p>
 </body>
 </html>
-<!DOCTYPE html>
-<html>
-<head>
-<title>Welcome to nginx!</title>
-<style>
-    body {
-        width: 35em;
-        margin: 0 auto;
-        font-family: Tahoma, Verdana, Arial, sans-serif;
-    }
-</style>
-</head>
-<body>
-<h1>Welcome to nginx!</h1>
-<p>If you see this page, the nginx web server is successfully installed and
-working. Further configuration is required.</p>
-
-<p>For online documentation and support please refer to
-<a href="http://nginx.org/">nginx.org</a>.<br/>
-Commercial support is available at
-<a href="http://nginx.com/">nginx.com</a>.</p>
-
-<p><em>Thank you for using nginx.</em></p>
-</body>
-</html>
 # 查看相应的防火墙流量转发策略
 $ iptables -vnL -t nat | grep "8888"
     0     0 CNI-HOSTPORT-SETMARK  tcp  --  *      *       10.42.0.0/24         0.0.0.0/0            tcp dpt:8888
     0     0 CNI-HOSTPORT-SETMARK  tcp  --  *      *       127.0.0.1            0.0.0.0/0            tcp dpt:8888
-    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8888 to:10.42.0.9:8888
-    0     0 CNI-DN-68413b838d71095be3d08  tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* dnat name: "cbr0" id: "1910e402d8848a47de520b76168aee611b54a64f314dd3a42c6d39ea7ad92d93" */ multiport dports 8888
-    0     0 KUBE-MARK-MASQ  tcp  --  *      *      !10.42.0.0/16         10.43.92.152         /* default/nginx:nginx cluster IP */ tcp dpt:8888
-    0     0 KUBE-SVC-GFECHBCWDTHJWART  tcp  --  *      *       0.0.0.0/0            10.43.92.152         /* default/nginx:nginx cluster IP */ tcp dpt:8888
-    1    60 KUBE-FW-GFECHBCWDTHJWART  tcp  --  *      *       0.0.0.0/0            10.0.0.51            /* default/nginx:nginx loadbalancer IP */ tcp dpt:8888
+    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8888 to:10.42.0.17:8888
+    0     0 CNI-DN-0313432e9c8f2f5b81fd0  tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* dnat name: "cbr0" id: "3402365beb39d9f523f6cde07f2915c127643effe8473ec0c82cb077ea3d0eb0" */ multiport dports 8888
+    0     0 KUBE-MARK-MASQ  tcp  --  *      *      !10.42.0.0/16         10.43.16.201         /* default/nginx:nginx cluster IP */ tcp dpt:8888
+    0     0 KUBE-SVC-GFECHBCWDTHJWART  tcp  --  *      *       0.0.0.0/0            10.43.16.201         /* default/nginx:nginx cluster IP */ tcp dpt:8888
+    0     0 KUBE-FW-GFECHBCWDTHJWART  tcp  --  *      *       0.0.0.0/0            10.0.0.51            /* default/nginx:nginx loadbalancer IP */ tcp dpt:8888
     0     0 KUBE-FW-GFECHBCWDTHJWART  tcp  --  *      *       0.0.0.0/0            10.0.0.52            /* default/nginx:nginx loadbalancer IP */ tcp dpt:8888
+$ kubectl get pod -o wide -A | grep 10.42.0.17
+default       svclb-nginx-wffxt                         1/1     Running     0          3m3s   10.42.0.17   k3s1   <none>           <none>
 
-$ kubectl get pod -o wide -A | grep 10.42.0.9
-default       svclb-nginx-q5jmr                         1/1     Running     0          3m58s   10.42.0.9    master01   <none>           <none>
+$ kubectl exec -it svclb-nginx-wffxt -- /bin/sh -c 'iptables -L -t nat | grep "8888"'
+DNAT       tcp  -- !nginx.default.svc.cluster.local  anywhere             tcp dpt:8888 to:10.43.16.201:8888
 
-$ kubectl exec -it svclb-nginx-q5jmr -- /bin/sh
-/ # iptables -L -t nat | grep "8888"
-DNAT       tcp  -- !nginx.default.svc.cluster.local  anywhere             tcp dpt:8888 to:10.43.92.152:8888
-
-$ kubectl get svc | grep "10.43.92.152"
-nginx        LoadBalancer   10.43.92.152   10.0.0.51,10.0.0.52   8888:30285/TCP   4m50s
+$ kubectl get svc | grep "10.43.16.201"
+nginx        LoadBalancer   10.43.16.201   10.0.0.51,10.0.0.52   8888:30467/TCP   3m52s
 
 # 查看Service的详细信息显示
 $ kubectl describe svc nginx
@@ -633,23 +720,34 @@ Selector:                 app=nginx
 Type:                     LoadBalancer
 IP Family Policy:         SingleStack
 IP Families:              IPv4
-IP:                       10.43.92.152
-IPs:                      10.43.92.152
+IP:                       10.43.16.201
+IPs:                      10.43.16.201
 LoadBalancer Ingress:     10.0.0.51, 10.0.0.52
 Port:                     nginx  8888/TCP
 TargetPort:               nginx-port/TCP
-NodePort:                 nginx  30285/TCP
-Endpoints:                10.42.0.8:80
+NodePort:                 nginx  30467/TCP
+Endpoints:                10.42.0.16:80
 Session Affinity:         None
 External Traffic Policy:  Cluster
 Events:                   <none>
-# 查看 Endpoints 信息
-$ kubectl get endpoints nginx
-NAME    ENDPOINTS      AGE
-nginx   10.42.0.8:80   5m57s
+# 查看 Endpoints 详细信息显示
+$ kubectl describe endpoints nginx
+Name:         nginx
+Namespace:    default
+Labels:       <none>
+Annotations:  endpoints.kubernetes.io/last-change-trigger-time: 2023-03-27T00:07:11+08:00
+Subsets:
+  Addresses:          10.42.0.16
+  NotReadyAddresses:  <none>
+  Ports:
+    Name   Port  Protocol
+    ----   ----  --------
+    nginx  80    TCP
 
-$ kubectl get pod -o wide | grep "10.42.0.8"
-nginx-deployment-6b769f4497-hvvlx   1/1     Running   0          6m41s   10.42.0.8    master01   <none>           <none>
+Events:  <none>
+
+$ kubectl get pod -o wide | grep "10.42.0.16"
+nginx-deployment-6b769f4497-x82sp   1/1     Running   0          4m46s   10.42.0.16   k3s1   <none>           <none
 ```
 
 ### 1.3.3 🎓从节点中排除 Service LB
@@ -657,7 +755,7 @@ nginx-deployment-6b769f4497-hvvlx   1/1     Running   0          6m41s   10.42.0
 要排除节点使用 Service LB，请将以下标签添加到不应排除的节点上：
 
 ```shell
-svccontroller.k3s.cattle.io/enablelb 
+svccontroller.k3s.cattle.io/enablelb
 ```
 
 如果使用标签，则 `service load balancer` 仅在标记的节点上运行。
@@ -665,23 +763,22 @@ svccontroller.k3s.cattle.io/enablelb
 ```shell
 # 查看Node的标签
 $ kubectl get nodes --show-labels
-NAME       STATUS   ROLES                  AGE     VERSION         LABELS
-master02   Ready    <none>                 3h46m   v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=master02,kubernetes.io/os=linux,node.kubernetes.io/instance-type=k3s
-master01   Ready    control-plane,master   3h49m   v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=master01,kubernetes.io/os=linux,node-role.kubernetes.io/control-plane=true,node-role.kubernetes.io/master=true,node.kubernetes.io/instance-type=k3s
+NAME   STATUS   ROLES                  AGE     VERSION         LABELS
+k3s2   Ready    <none>                 3m23s   v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=k3s2,kubernetes.io/os=linux,node.kubernetes.io/instance-type=k3s
+k3s1   Ready    control-plane,master   164m    v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=k3s1,kubernetes.io/os=linux,node-role.kubernetes.io/control-plane=true,node-role.kubernetes.io/master=true,node.kubernetes.io/instance-type=k3s
+# 设置Node的标签
+$ kubectl label node k3s2 svccontroller.k3s.cattle.io/enablelb=true
+node/k3s2 labeled
 
-$ kubectl label node master02 svccontroller.k3s.cattle.io/enablelb=true
-node/master02 labeled
 # 再次查看Node的标签
 $ kubectl get nodes --show-labels
-NAME       STATUS   ROLES                  AGE     VERSION         LABELS
-master01   Ready    control-plane,master   3h49m   v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=master01,kubernetes.io/os=linux,node-role.kubernetes.io/control-plane=true,node-role.kubernetes.io/master=true,node.kubernetes.io/instance-type=k3s
-master02   Ready    <none>                 3h47m   v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=master02,kubernetes.io/os=linux,node.kubernetes.io/instance-type=k3s,svccontroller.k3s.cattle.io/enablelb=tru
+NAME   STATUS   ROLES                  AGE     VERSION         LABELS
+k3s1   Ready    control-plane,master   164m    v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=k3s1,kubernetes.io/os=linux,node-role.kubernetes.io/control-plane=true,node-role.kubernetes.io/master=true,node.kubernetes.io/instance-type=k3s
+k3s2   Ready    <none>                 3m56s   v1.21.14+k3s1   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=k3s,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=k3s2,kubernetes.io/os=linux,node.kubernetes.io/instance-type=k3s,svccontroller.k3s.cattle.io/enablelb=true
 
-# 会发现已经没有master02的svclb的Pod
-$ kubectl get pods -o wide
-NAME                                READY   STATUS    RESTARTS   AGE     IP           NODE       NOMINATED NODE   READINESS GATES
-nginx-deployment-6b769f4497-hvvlx   1/1     Running   0          9m45s   10.42.0.8    master01   <none>           <none>
-svclb-nginx-22vfc                   1/1     Running   0          23s     10.42.1.14   master02   <none>           <none>
+# 会发现已经没有k3s2的svclb的Pod
+$ kubectl get pods -o wide | grep "svclb-nginx"
+svclb-nginx-fznbq                   1/1     Running   0          35s    10.42.1.7    k3s2   <none>           <none>
 ```
 
 ### 1.3.4 🎓禁用 Service LB
@@ -699,16 +796,18 @@ svclb-nginx-22vfc                   1/1     Running   0          23s     10.42.1
 ```bash
 # K3S_URL : 指定K3s Master URL
 # K3S_TOKEN : 指定K3s Master Token[cat /var/lib/rancher/k3s/server/token]
-curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
-  K3S_URL=https://10.0.0.30:6443 \ 
-  K3S_TOKEN=6f4f3e77082caf01f1e4874bbbab61a6 sh -s - --node-name k3s2
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
+  K3S_URL=https://10.0.0.51:6443 \ 
+  K3S_TOKEN=rancher sh -s - --node-name k3s2
 # K3S_URL : 指定K3s Master URL
 # K3S_TOKEN : 指定K3s Master Token[cat /var/lib/rancher/k3s/server/token]
 # 使用环境变量的方式指定主机名最后还是会以参数的形式进行修改
-curl -sfL https://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | K3S_NODE_NAME="k3s2" \
+$ curl -sfL https://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | \
+  K3S_NODE_NAME="k3s2" \
   INSTALL_K3S_MIRROR=cn \
-  K3S_URL=https://10.0.0.30:6443 \
-  K3S_TOKEN=6f4f3e77082caf01f1e4874bbbab61a6 sh -
+  K3S_URL=https://10.0.0.51:6443 \
+  K3S_TOKEN=rancher sh -
 $ kubectl get nodes
 NAME   STATUS   ROLES                  AGE   VERSION
 k3s1   Ready    control-plane,master   72m   v1.25.6+k3s1

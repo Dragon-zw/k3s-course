@@ -2,6 +2,8 @@ Video Reference：[14-卷和存储](https://www.bilibili.com/video/BV19r4y1v7UT/
 
 GitHub README.md：[14-卷和存储](https://github.com/kingsd041/k3s-tutorial/tree/main/14-卷和存储)
 
+**介绍了如何通过 local storage provider 或 Longhorn 来设置持久存储。**
+
 # 0 K3s 的存储有什么变化？
 
 K3s 删除了几个可选的卷插件和所有内置的（有时被称为 "树内"）云提供商。我们这样做是为了实现更小的二进制文件大小，并避免对第三方云或数据中心技术和服务的依赖，这些技术和服务在许多 K3s 的使用案例中可能无法使用。我们之所以能够这样做，是因为删除这些插件既不影响 Kubernetes 的核心功能，也不影响一致性。
@@ -28,18 +30,18 @@ Kubernetes 维护者正在积极将树内卷插件迁移到 CSI 驱动。有关�
 
 本节介绍了如何通过 `local storage provider` 或 `Longhorn` 来设置持久存储。
 
-## 1.1 💎 设置 Local Storage Provider
+## 1.1 💎设置 Local Storage Provider
 
 K3s 自带 Rancher 的 `Local Path Provisioner`，这使得能够使用各自节点上的本地存储来开箱即用地创建 pvc。
 
 Local Path Provisioner 为 Kubernetes/K3s 用户提供了一种利用每个节点中的本地存储的方法。根据用户配置，Local Path Provisioner 将自动在节点上创建基于 `hostPath` 的持久卷。它利用了 `Kubernetes Local Persistent Volume` 特性引入的特性，但他比 Kubernetes 中内置的 local pv 特性更简单的解决方案。
 
-范例：部署本地环境 K3s 集群
+范例：部署本地环境K3s集群
 
 ```shell
 # 安装Docker容器运行时环境
 # 在 K3s 节点上安装 Docker。可以使用 Rancher 的一个Docker 安装脚本来安装 Docker：
-$ curl https://releases.rancher.com/install-docker/19.03.sh | sh
+curl https://releases.rancher.com/install-docker/19.03.sh | sh
 
 # 配置镜像加速器
 sudo mkdir -p /etc/docker
@@ -51,23 +53,27 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl restart docker && sudo systemctl enable docker
 # K3s Master
-$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
   INSTALL_K3S_VERSION="v1.21.14+k3s1" \
   INSTALL_K3S_EXEC="server --docker" \
-  sh -s -
+  K3S_TOKEN=rancher sh -s -
+
 $ cat /var/lib/rancher/k3s/server/token
-K1046b15950a113b87d32b8d245b15490b76722b81f16b79f0e1eb912d2fe0d6b9a::server:e8f98075887822efc50aed139e778e2d
+K1046b15950a113b87d32b8d245b15490b76722b81f16b79f0e1eb912d2fe0d6b9a::server:rancher
 
 # K3s Worker
-$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
   K3S_URL=https://10.0.0.51:6443 \
-  K3S_TOKEN=e8f98075887822efc50aed139e778e2d INSTALL_K3S_VERSION="v1.21.14+k3s1" \
+  K3S_TOKEN=rancher INSTALL_K3S_VERSION="v1.21.14+k3s1" \
   INSTALL_K3S_EXEC="--node-ip=10.0.0.52 --docker" \
   sh -
 
-$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
   K3S_URL=https://10.0.0.51:6443 \
-  K3S_TOKEN=e8f98075887822efc50aed139e778e2d INSTALL_K3S_VERSION="v1.21.14+k3s1" \
+  K3S_TOKEN=rancher INSTALL_K3S_VERSION="v1.21.14+k3s1" \
   INSTALL_K3S_EXEC="--node-ip=10.0.0.53 --docker" \
   sh -
 ```
@@ -101,7 +107,7 @@ $ ls /var/lib/rancher/k3s/server/manifests
 ccm.yaml  c_dns.yaml  local-storage.yaml  metrics-server  rolebindings.yaml  traefik.yaml
 # 查看相应的StorageClass的资源文件
 $ cat /var/lib/rancher/k3s/server/manifests/local-storage.yaml
-$ kubectl get sc
+$ kubectl get sc # kubectl get storageclass
 NAME                   PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
 local-path (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  9m18s
 $ cat /var/lib/rancher/k3s/server/manifests/local-storage.yaml
@@ -191,7 +197,8 @@ spec:
           configMap:
             name: local-path-config
 ---
-# 创建StorageClass的存储引擎
+# 创建StorageClass的存储类
+# 可以通过 PVC 指定存储类就可以创建相应的卷
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -277,6 +284,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  # 指定storageClassName的名称
   storageClassName: local-path
   resources:
     requests:
@@ -298,11 +306,13 @@ spec:
   - name: volume-test
     image: nginx:stable-alpine
     imagePullPolicy: IfNotPresent
+    # 指定容器的挂载目录
     volumeMounts:
     - name: volv
       mountPath: /data
     ports:
     - containerPort: 80
+  # 使用指定的PVC的持久卷申请
   volumes:
   - name: volv
     persistentVolumeClaim:
@@ -343,20 +353,29 @@ Thu Mar 23 23:58:59 CST 2023
 
 # 可以到对应的节点(k3s2)查看文件是否存在
 $ cd /var/lib/rancher/k3s/storage/
-$ ls
-pvc-c637caa5-fc94-4751-81c8-545141052691_default_local-path-pvc
-$ cat pvc-c637caa5-fc94-4751-81c8-545141052691_default_local-path-pvc/test.txt
+$ cat /var/lib/rancher/k3s/storage/pvc-[......]_default_local-path-pvc/test.txt
 Fri Mar 23 23:58:59 CST 2023
 ```
 
-范例：模拟 Pod 的故障
+范例：模拟Pod的故障
 
 ```shell
 # 模拟Pod发生故障
 $ kubectl delete -f pod.yaml
 pod "volume-test" deleted
+$ kubectl get pod
+No resources found in default namespace.
+
+# 重新创建Pod
 $ kubectl create -f pod.yaml
 pod/volume-test created
+
+# 因为所有的数据存储在对应的local-path的storageclass中
+# 再重启Pod，还是会连接到之前的Node节点，保证了数据的持久性
+$ kubectl get pod -o wide
+NAME          READY   STATUS    RESTARTS   AGE   IP          NODE   NOMINATED NODE   READINESS GATES
+volume-test   1/1     Running   0          7s    10.42.1.5   k3s2   <none>           <none>
+
 # 发现数据依旧存在
 $ kubectl exec -it volume-test -- sh -c "cat /data/test.txt"
 Thu Mar 23 23:58:59 CST 2023
@@ -364,11 +383,17 @@ Thu Mar 23 23:58:59 CST 2023
 $ kubectl delete -f pod.yaml -f pvc.yaml
 ```
 
-## 1.2 💎 设置 Longhorn
+## 1.2 💎设置 Longhorn
+
+**注意：** 目前 Longhorn 只支持 amd64 和 arm64（实验性）。
 
 K3s 支持 [Longhorn](https://github.com/longhorn/longhorn). Longhorn 是 Kubernetes 的一个`开源分布式块存储系统`。
 
 下面我们介绍一个简单的例子。有关更多信息，请参阅[官方文档](https://github.com/longhorn/longhorn/blob/master/README.md)。
+
+Github Reference：https://github.com/longhorn/longhorn
+
+官网地址：https://github.com/longhorn/longhorn
 
 **Longhorn** 是一个轻量级、可靠、功能强大的 Kubernetes 分布式[块存储系统](https://cloudacademy.com/blog/object-storage-block-storage/)。
 
@@ -383,24 +408,26 @@ Longhorn 使用容器和微服务实现分布式块存储。Longhorn 为每个�
 - 自动化、无中断升级。您可以升级整个 Longhorn 软件堆栈，而不会中断正在运行的存储卷。
 - 直观的图形用户界面仪表板
 
-![img](assets/1679597256201-7863e78a-6d92-4526-b903-4275024e4fba.svg+xml)
+![img](https://cdn.nlark.com/yuque/0/2023/svg/2555283/1679597256201-7863e78a-6d92-4526-b903-4275024e4fba.svg)
 
 ### 1.2.1 安装 Longhorn：
 
 ```shell
-# kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/master/deploy/longhorn.yaml
+# kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/master/deploy/longhorn.yaml 
 
 # 可以下载 longhorn.yaml 配置文件
-$ wget https://raw.githubusercontent.com/longhorn/longhorn/master/deploy/longhorn.yaml
+$ wget https://raw.githubusercontent.com/longhorn/longhorn/master/deploy/longhorn.yaml 
 $ kubectl create -f longhorn.yaml
 ```
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679867275569-39994cd5-0c84-4814-ac1a-f37047aae875.png)
 
 Longhorn 将被安装在命名空间 `longhorn-system` 中。
 
 ```shell
 # 查看longhorn-system的命名空间的所有资源
-# 需要所有的Pod都启动成功，longhorn 才能启动成功
-$ kubectl get all -n longhorn-system
+# 需要一段的时间，等待所有的Pod都启动成功，longhorn 才能启动成功。
+$ kubectl get all --namespace longhorn-system
 NAME                                                      READY   STATUS    RESTARTS   AGE
 pod/longhorn-recovery-backend-997bd57f-s4g7m              1/1     Running   0          12m
 pod/longhorn-conversion-webhook-747fc8cbcd-bnnj6          1/1     Running   0          12m
@@ -478,32 +505,37 @@ replicaset.apps/csi-attacher-84b96d64c8                  3         3         3  
 replicaset.apps/csi-provisioner-6ccbfbf86f               3         3         3       10m
 replicaset.apps/csi-resizer-58c959486d                   3         3         3       10m
 replicaset.apps/csi-snapshotter-7f744fbb67               3         3         3       10m
-
 # 将service/longhorn-frontend修改为NodePort的方式
-$ kubectl edit svc -n longhorn-system longhorn-frontend
+$ kubectl edit svc --namespace longhorn-system longhorn-frontend
 # type: ClusterIP -> type: NodePort
 
 # 可以直接进行修改
-$ kubectl patch svc longhorn-frontend -n longhorn-system -p '{"spec":{"type": "NodePort"}}'
+$ kubectl patch svc longhorn-frontend --namespace longhorn-system -p '{"spec":{"type": "NodePort"}}'
 service/longhorn-frontend patched
 
 # 查看Service的配置
-$ kubectl get svc -n longhorn-system longhorn-frontend
+$ kubectl get svc --namespace longhorn-system longhorn-frontend
 NAME                TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
 longhorn-frontend   NodePort   10.43.151.184   <none>        80:30193/TCP   13m
 
 # 会发现创建一个longhorn的StorageClass存储类
-$ kubectl get sc
+$ kubectl get sc # kubectl get storageclass
 NAME                   PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
 local-path (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  28m
-longhorn (default)     driver.longhorn.io      Delete          Immediate              true                   16m
+longhorn (default)     driver.longhorn.io      Delete          Immediate              true                   10m
 ```
 
-通过浏览器访问`http://NodeIP:[longhorn-frontend-NodePort]`的域名，就可以 longhorn 的 WebUI。
+通过浏览器访问`http://NodeIP:[longhorn-frontend-NodePort]`的域名，就可以longhorn的WebUI。
 
-![img](assets/1679597040508-75b42451-bc76-4c04-baa3-271257296e51.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679597040508-75b42451-bc76-4c04-baa3-271257296e51.png)
 
-![img](assets/1679597136897-54a3f3e6-196e-4a8f-8ddb-ed4768bee9ac.png)
+- 通过 Longhorn 查看 Node 节点的信息
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679867951856-728f9dd1-49a9-4d33-a0d9-da45dfa7928c.png)
+
+- 通过 Longhorn 查看 Volume 的信息
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679867793351-c1391ba9-996c-4d2d-bf2b-461dd6d2a47c.png)
 
 ### 1.2.2 创建 PVC 和 pod：
 
@@ -554,6 +586,7 @@ EOF
 #### 1.2.2.3 确认 PV 和 PVC 已创建：
 
 ```shell
+# 使用 Longhorn 跟使用 local-path 的方式是没有区别的
 $ kubectl create -f longhorn-pvc.yaml -f longhorn-pod.yaml
 persistentvolumeclaim/longhorn-volv-pvc created
 pod/volume-test created
@@ -568,13 +601,13 @@ persistentvolumeclaim/longhorn-volv-pvc   Bound    pvc-8934d1d6-1f4e-48ee-8f81-6
 
 可以通过 longhorn 的 WebUI 查看 Volume 的资源
 
-![img](assets/1679597347456-3085cc0c-df5a-438e-a1b5-d0311bad1f69.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679597347456-3085cc0c-df5a-438e-a1b5-d0311bad1f69.png)
 
-![img](assets/1679597390749-819e7ebe-0cea-4358-b4f7-7745a0ba1c8d.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679597390749-819e7ebe-0cea-4358-b4f7-7745a0ba1c8d.png)
 
-## 1.3 💎 设置 NFS
+## 1.3 💎设置 NFS
 
-如果你的 K3S 集群是 v1.20+，在 nfs provisioner 创建 PersistentVolumeClaim，PersistentVolumeClaim 保持 Pending 状态, 且 nfs provisioner 会报错：
+如果你的 K3S 集群是 v1.20+，在 `nfs provisioner` 创建 `PersistentVolumeClaim`，`PersistentVolumeClaim` 保持 `Pending` 状态, 且 `nfs provisioner` 会报错：
 
 ```shell
 I0512 03:01:54.863533       1 controller.go:926] provision "default/v1" class "nfs-provisioner": started
@@ -587,18 +620,19 @@ E0512 03:01:54.867892       1 controller.go:943] provision "default/v1" class "n
 
 正如 [github 评论](https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner/issues/25#issuecomment-742616668) 中所指出的，将 `RemoveSelfLink` 设置为 `false` 可以解决这个问题。
 
-- 修改 k3s 的配置文件
+- 修改k3s的配置文件
+- 添加的参数：`- --feature-gates=RemoveSelfLink=false`
 
-![img](assets/1679597525633-f53d6ad4-15d7-4a8e-ba0d-430297258415.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679597525633-f53d6ad4-15d7-4a8e-ba0d-430297258415.png)
 
 - 修改相应的镜像
 
-![img](assets/1679597563258-b2eca44b-7ff2-42c5-af20-eb84660fee32.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679597563258-b2eca44b-7ff2-42c5-af20-eb84660fee32.png)
 
 ### 1.3.2 解决方法
 
 ```shell
-$ curl -sfL https://get.k3s.io | sh -s - --kube-apiserver-arg "feature-gates=RemoveSelfLink=false"
+$ curl -sfL https://get.k3s.io | sh -s - --kube-apiserver-arg "feature-gates=RemoveSelfLink=false" 
 ```
 
 或修改`k3s.service`的服务配置文件
