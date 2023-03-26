@@ -19,35 +19,47 @@ GitHub README.md：[17-高级选项和配置](https://github.com/kingsd041/k3s-t
 - [SELinux 支持](https://github.com/kingsd041/k3s-tutorial/tree/main/17-高级选项和配置#selinux-支持)
 - [Red Hat 和 CentOS 的额外准备](https://github.com/kingsd041/k3s-tutorial/tree/main/17-高级选项和配置#red-hat-和-centos-的额外准备)
 
-Public Reference：[https://docs.rancher.cn/docs/k3s/advanced/_index#server-%E5%92%8C-agent-token](https://docs.rancher.cn/docs/k3s/advanced/_index#server-和-agent-token)
+官方参考资料：[高级选项和配置](https://docs.rancher.cn/docs/k3s/advanced/_index)
 
 ## 1.1 证书轮换
 
-默认情况下，K3s 的证书在 12 个月内过期。
+默认情况下，K3s 集群启动之后，会生成一系列的证书，K3s 的证书在 12 个月(一年之内)内过期。
 
-如果证书已经过期或剩余的时间不足 90 天，则在 K3s 重启时轮换证书。
+如果证书已经过期或剩余的时间不足 90 天，则在 K3s 重启时轮换证书。重启 K3s 并不会对业务的 Pod 有任何的影响。
 
 ```shell
+# 部署单节点的K3s集群
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
+  INSTALL_K3S_EXEC="--docker" \
+  K3S_KUBECONFIG_OUTPUT=/root/.kube/config \
+  INSTALL_K3S_VERSION="v1.21.14+k3s1" \
+  K3S_TOKEN="rancher" sh -
+
 # 查询K3s证书过期时间
-for i in `ls /var/lib/rancher/k3s/server/tls/*.crt`; do echo $i; openssl x509 -enddate -noout -in $i; done
+$ for i in `ls /var/lib/rancher/k3s/server/tls/*.crt`; \
+  do \
+    echo $i; openssl x509 -enddate -noout -in $i; \
+  done
 
 # 修改系统时间为证书过期前90天或证书过期后
 $ timedatectl set-ntp no
 $ date -s 20240807
+
 $ kubectl get nodes
 Unable to connect to the server: x509: certificate has expired or is not yet valid: current time 2026-08-07T00:00:04+08:00 is after 2025-08-06T16:00:35Z
 $ tail -n 200 -f /var/log/messages
 ojected volume kube-api-access-5kmph for pod kube-system/coredns-574bcc6c46-bdz6b: token "coredns"/"kube-system"/[]string(nil)/3607/v1.BoundObjectReference{Kind:"Pod", APIVersion:"v1", Name:"coredns-574bcc6c46-bdz6b", UID:"55b42ec9-8398-4b05-9ebd-dec42d4f5b88"} expired and refresh failed: Post "https://127.0.0.1:6443/api/v1/namespaces/kube-system/serviceaccounts/coredns/token": x509: certificate has expired or is not yet valid: current time 2026-08-07T00:00:35+08:00 is after 2025-08-06T16:00:35Z
 
-# 重启K3s服务
+# 重启K3s服务(手动触发K3s证书的更新)
 service k3s restart
 ```
 
-![img](assets/1678179233240-2efc4f1b-b29c-4c89-92b6-1a9a7dac955b.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1678179233240-2efc4f1b-b29c-4c89-92b6-1a9a7dac955b.png)
 
-重启 K3s 服务之后就会证书更新
+重启 K3s 服务之后就会证书更新（更新证书需要一段时间）
 
-![img](assets/1678181653668-4e4679d5-4ef2-41fe-9e9c-c413705e1e9f.png)
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1678181653668-4e4679d5-4ef2-41fe-9e9c-c413705e1e9f.png)
 
 ## 1.2 自动部署清单
 
@@ -90,7 +102,7 @@ metadata:
   namespace: default
 spec:
   selector:
-    app: nginx-svc
+    app: nginx-deploy
   type: NodePort
   ports:
   - name: nginx-http
@@ -98,7 +110,7 @@ spec:
     port: 80
     targetPort: 80
     nodePort: 30080
-$ cp nginx-deploy-svc.yaml /var/lib/rancher/k3s/server/manifests
+$ cp -av nginx-deploy-svc.yaml /var/lib/rancher/k3s/server/manifests
 $ ls -l /var/lib/rancher/k3s/server/manifests
 total 28
 -rw------- 1 root root 1108 Mar  7 17:41 ccm.yaml
@@ -145,13 +157,22 @@ curl https://releases.rancher.com/install-docker/19.03.sh | sh
 # 默认使用containerd的容器运行时环境
 # 如果在containerd部署的集群，再使用该命令添加--docker参数，那么数据是无法进行同步的
 # 即需要在Docker的运行时环境中再部署一套业务
+# 默认是通过DockerHub拉取镜像，可以使用INSTALL_K3S_MIRROR=cn从国内进行拉取镜像
 curl -sfL https://get.k3s.io | sh -s - --docker
 ```
 
-国内用户，可以使用以下方法加速安装：
+💡国内用户，可以使用以下方法加速安装：
 
 ```shell
-curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn sh -s - --docker
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn sh -s - --docker
+# 或者
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
+  INSTALL_K3S_EXEC="--docker" \
+  K3S_KUBECONFIG_OUTPUT=/root/.kube/config \
+  INSTALL_K3S_VERSION="v1.21.14+k3s1" \
+  K3S_TOKEN="rancher" sh -
 
 # 验证使用Docker的容器运行时环境
 $ tail -n 4 /etc/systemd/system/k3s.service
@@ -242,7 +263,12 @@ docker.io/rancher/mirrored-library-traefik   2.6.1                  cf9fa2c5f0d2
 docker.io/rancher/mirrored-metrics-server    v0.5.2                 f73640fb50619       26MB
 ```
 
-### 1.3.2 以下操作将删除节点中的数据（包括容器，卷，iptables 等），在执行命令之前，请先查看该脚本，确保您理解这个脚本在做什么，并且确保已进行了数据备份。
+### 1.3.2 清理节点
+
+- 在使用 Containerd 作为容器运行时环境CRI，则可以使用`k3s-uninstall.sh`直接删除K3s集群环境
+- 在使用 Docker 作为容器运行时环境CRI，则即使使用`k3s-uninstall.sh`直接删除K3s集群环境，也会残留部分 K3s 容器信息，需要管理员手动删除 K3s 集群的容器，`docker rm -f $(docker ps -aq)`，同时建议推荐使用`Rancher - K3s`的清理脚本运行
+
+以下操作将删除节点中的数据（包括容器，卷，iptables 等），在执行命令之前，请先查看该脚本，确保您理解这个脚本在做什么，并且确保已进行了数据备份。
 
 Reference：[https://docs.rancher.cn/docs/rancher2/trending-topics/cleaning-cluster-nodes/_index/#%E6%B8%85%E7%90%86%E8%84%9A%E6%9C%AC](https://docs.rancher.cn/docs/rancher2/trending-topics/cleaning-cluster-nodes/_index/#清理脚本)
 
@@ -372,38 +398,30 @@ Containerd 对配置镜像以及其他设置时，使用Containerd的语法是�
 
 Reference：https://docs.rancher.cn/docs/k3s/installation/private-registry/_index
 
-K3s 将会在`/var/lib/rancher/k3s/agent/etc/containerd/config.toml`中为 `containerd` 生成 `config.toml`。
+K3s 将会在`/var/lib/rancher/k3s/agent/etc/containerd/config.toml`中为 `containerd` 生成 `config.toml`。不太推荐直接修改 Containerd 的配置文件，建议通过 K3s 的启动命令的参数进行修改。
 
 ```shell
-$ cat /var/lib/rancher/k3s/agent/etc/containerd/config.toml
-
-version = 2
-
-[plugins."io.containerd.internal.v1.opt"]
+$ vim /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+[plugins.opt]
   path = "/var/lib/rancher/k3s/agent/containerd"
-[plugins."io.containerd.grpc.v1.cri"]
+
+[plugins.cri]
   stream_server_address = "127.0.0.1"
   stream_server_port = "10010"
   enable_selinux = false
-  enable_unprivileged_ports = false
-  enable_unprivileged_icmp = false
-  sandbox_image = "rancher/mirrored-pause:3.6"
+  sandbox_image = "rancher/mirrored-pause:3.5"
 
-[plugins."io.containerd.grpc.v1.cri".containerd]
-  snapshotter = "overlayfs"
+[plugins.cri.containerd]
   disable_snapshot_annotations = true
+  snapshotter = "overlayfs"
 
-
-[plugins."io.containerd.grpc.v1.cri".cni]
-  bin_dir = "/var/lib/rancher/k3s/data/630c40ff866a3db218a952ebd4fd2a5cfe1543a1a467e738cb46a2ad4012d6f1/bin"
+[plugins.cri.cni]
+  bin_dir = "/var/lib/rancher/k3s/data/b945d2fc310e0d5ca6d5d937c978b7724ae6066555ff18890ade9cac510baa70/bin"
   conf_dir = "/var/lib/rancher/k3s/agent/etc/cni/net.d"
 
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+[plugins.cri.containerd.runtimes.runc]
   runtime_type = "io.containerd.runc.v2"
-
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-  SystemdCgroup = false
 ```
 
 如果要对这个文件进行高级定制，你可以在同一目录中创建另一个名为 `config.toml.tmpl` 的文件，此文件将会代替默认设置。
@@ -411,53 +429,48 @@ version = 2
 `config.toml.tmpl`将被视为 Go 模板文件，并且`config.Node`结构被传递给模板。[此模板](https://github.com/rancher/k3s/blob/master/pkg/agent/templates/templates.go#L16-L32)示例介绍了如何使用结构来自定义配置文件。
 
 ```shell
-version = 2
-
-[plugins."io.containerd.internal.v1.opt"]
+$ vim /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+[plugins.opt]
   path = "/var/lib/rancher/k3s/agent/containerd"
-[plugins."io.containerd.grpc.v1.cri"]
+
+[plugins.cri]
   stream_server_address = "127.0.0.1"
   stream_server_port = "10010"
   enable_selinux = false
-  enable_unprivileged_ports = false
-  enable_unprivileged_icmp = false
-  sandbox_image = "rancher/mirrored-pause:3.6"
+  sandbox_image = "rancher/mirrored-pause:3.5"
 
-[plugins."io.containerd.grpc.v1.cri".containerd]
-  snapshotter = "overlayfs"
+[plugins.cri.containerd]
   disable_snapshot_annotations = true
+  snapshotter = "overlayfs"
 
-
-[plugins."io.containerd.grpc.v1.cri".cni]
-  bin_dir = "/var/lib/rancher/k3s/data/630c40ff866a3db218a952ebd4fd2a5cfe1543a1a467e738cb46a2ad4012d6f1/bin"
+[plugins.cri.cni]
+  bin_dir = "/var/lib/rancher/k3s/data/b945d2fc310e0d5ca6d5d937c978b7724ae6066555ff18890ade9cac510baa70/bin"
   conf_dir = "/var/lib/rancher/k3s/agent/etc/cni/net.d"
 
 
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+[plugins.cri.containerd.runtimes.runc]
   runtime_type = "io.containerd.runc.v2"
-
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-  SystemdCgroup = false
 
 [plugins.cri.registry.mirrors]
   [plugins.cri.registry.mirrors."docker.io"]
-    endpoint = ["https://po13h3y1.mirror.aliyuncs.com", "https://registry-1.docker.io"]
-$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn \
-  INSTALL_K3S_VERSION="v1.21.14+k3s1" sh -
+    endpoint = ["https://po13h3y1.mirror.aliyuncs.com", "http://hub-mirror.c.163.com", "https://mirror.ccs.tencentyun.com", "http://f1361db2.m.daocloud.io", "https://registry-1.docker.io"]
+$ curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+  INSTALL_K3S_MIRROR=cn \
+  K3S_KUBECONFIG_OUTPUT=/root/.kube/config \
+  INSTALL_K3S_VERSION="v1.21.14+k3s1" \
+  K3S_TOKEN="rancher" sh -
 
 # 修改配置文件后重启服务
 $ systemctl restart k3s.service
-$ crictl info | grep -A 4 registry
-    "registry": {
-      "mirrors": {
-        "docker.io": {
+# 查看配置生效情况
+$ crictl info | grep -A 6 "\<endpoint\>"
           "endpoint": [
             "https://po13h3y1.mirror.aliyuncs.com",
+            "http://hub-mirror.c.163.com",
+            "https://mirror.ccs.tencentyun.com",
+            "http://f1361db2.m.daocloud.io",
             "https://registry-1.docker.io"
           ],
-          "rewrite": null
-        }
-      },
 ```
 
 ## 1.5 节点标签和污点
@@ -491,7 +504,7 @@ Reference：https://docs.rancher.cn/docs/k3s/installation/install-options/server
 curl -sfL https://get.k3s.io | sh -
 ```
 
-国内用户，可以使用以下方法加速安装：
+💡国内用户，可以使用以下方法加速安装：
 
 ```shell
 curl -sfL http://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn sh - 
@@ -500,6 +513,7 @@ curl -sfL http://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | INSTALL_K3S_M
 当手动运行 server 时，你应该得到一个类似于下面的输出：
 
 ```shell
+# 推荐使用安装脚本进行安装
 $ k3s server
 INFO[2019-01-22T15:16:19.908493986-07:00] Starting k3s dev
 INFO[2019-01-22T15:16:19.908934479-07:00] Running kube-apiserver --allow-privileged=true --authorization-mode Node,RBAC --service-account-signing-key-file /var/lib/rancher/k3s/server/tls/service.key --service-cluster-ip-range 10.43.0.0/16 --advertise-port 6445 --advertise-address 127.0.0.1 --insecure-port 0 --secure-port 6444 --bind-address 127.0.0.1 --tls-cert-file /var/lib/rancher/k3s/server/tls/localhost.crt --tls-private-key-file /var/lib/rancher/k3s/server/tls/localhost.key --service-account-key-file /var/lib/rancher/k3s/server/tls/service.key --service-account-issuer k3s --api-audiences unknown --basic-auth-file /var/lib/rancher/k3s/server/cred/passwd --kubelet-client-certificate /var/lib/rancher/k3s/server/tls/token-node.crt --kubelet-client-key /var/lib/rancher/k3s/server/tls/token-node.key
@@ -524,7 +538,7 @@ INFO[2019-01-22T15:16:20.541049100-07:00] Run: k3s kubectl
 1. 更新 `**/etc/update-extlinux.conf**` 添加：
 
 ```shell
-# 启用cgroup的内核
+# 启用cgroup的内核功能
 default_kernel_opts="...  cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory"
 ```
 
@@ -539,27 +553,39 @@ reboot
 
 [k3d](https://github.com/rancher/k3d) 是一个设计用于在 Docker 中轻松运行 K3s 的工具。
 
-它可以通过 MacOS 上的[brew](https://brew.sh/)工具安装：
+- 可以在 k3d 创建容器化的 k3s 集群
+- 可以使用容器在单台计算机上启动多节点 k3s 集群
+
+它可以通过 MacOS 上的 [brew](https://brew.sh/)工具安装：
 
 ```shell
 # 需要有Docker容器运行时环境
 brew install k3d
+```
 
+可以通过 Linux 进行安装：
+
+```shell
 # Linux
+# 安装Docker环境
+$ curl https://releases.rancher.com/install-docker/20.10.sh | sh
+
 # https://github.com/k3d-io/k3d/releases/download/v5.4.8/k3d-linux-amd64
 $ wget https://github.com/k3d-io/k3d/releases/download/v5.4.8/k3d-linux-amd64
-$ mv k3d-linux-amd64 /usr/local/bin/k3d
-$ chmod +x /usr/local/bin/k3d
+$ mv k3d-linux-amd64 /usr/local/bin/k3d && chmod +x /usr/local/bin/k3d
 
 # 查看K3d版本
+# 需要注意 Docker 版本和 K3d 版本之间的对应关系
 $ k3d version
 k3d version v5.4.8
 k3s version v1.25.6-k3s1 (default)
 
 # 创建集群环境
+# --servers 指定 K3s servers 的节点数
+# --agents  指定 K3s agents  的节点数
 $ k3d cluster create demo --servers 1 --agents 2
 # 若出现相关的报错，可以使用以下的解决方案
-# 原因是因为防火墙关闭之后需要重启docker服务。systemctl restart docker 
+# 原因是因为防火墙关闭之后需要重启docker服务(systemctl restart docker)
 
 INFO[0000] Prep: Network
 INFO[0000] Created network 'k3d-demo'
@@ -589,26 +615,27 @@ kubectl cluster-info
 # 查看Docker Version版本
 $ docker version
 Client: Docker Engine - Community
- Version:           23.0.1
- API version:       1.41 (downgraded from 1.42)
- Go version:        go1.19.5
- Git commit:        a5ee5b1
- Built:             Thu Feb  9 19:51:00 2023
+ Version:           20.10.21
+ API version:       1.41
+ Go version:        go1.18.7
+ Git commit:        baeda1f
+ Built:             Tue Oct 25 18:04:24 2022
  OS/Arch:           linux/amd64
  Context:           default
+ Experimental:      true
 
 Server: Docker Engine - Community
  Engine:
-  Version:          20.10.9
+  Version:          20.10.21
   API version:      1.41 (minimum version 1.12)
-  Go version:       go1.16.8
-  Git commit:       79ea9d3
-  Built:            Mon Oct  4 16:06:37 2021
+  Go version:       go1.18.7
+  Git commit:       3056208
+  Built:            Tue Oct 25 18:02:38 2022
   OS/Arch:          linux/amd64
   Experimental:     false
  containerd:
-  Version:          1.6.18
-  GitCommit:        2456e983eb9e37e47538f59ea18f2043c9a73640
+  Version:          1.6.19
+  GitCommit:        1e1ea6e986c6c86565bc33d52e34b81b3e2bc71f
  runc:
   Version:          1.1.4
   GitCommit:        v1.1.4-0-g5fd4c4d
@@ -623,7 +650,19 @@ bf83b5a70ce7   ghcr.io/k3d-io/k3d-proxy:5.4.8   "/bin/sh -c nginx-pr…"   About
 7757176c59f9   rancher/k3s:v1.25.6-k3s1         "/bin/k3s agent"         About a minute ago   Up 52 seconds                                     k3d-demo-agent-1
 90e99a19ef02   rancher/k3s:v1.25.6-k3s1         "/bin/k3s agent"         About a minute ago   Up 53 seconds                                     k3d-demo-agent-0
 ab7f743a0848   rancher/k3s:v1.25.6-k3s1         "/bin/k3s server --t…"   About a minute ago   Up 58 seconds                                     k3d-demo-server-0
+
+# 查看Node的节点
+# 需要手动获取kubectl的二进制工具(或者使用k3s的二进制工具内置的kubectl选项)
+$ k3s kubectl get nodes
+INFO[0000] Acquiring lock file /var/lib/rancher/k3s/data/.lock
+INFO[0000] Preparing data dir /var/lib/rancher/k3s/data/b945d2fc310e0d5ca6d5d937c978b7724ae6066555ff18890ade9cac510baa70
+NAME                STATUS   ROLES                  AGE     VERSION
+k3d-demo-agent-0    Ready    <none>                 3m6s    v1.25.6+k3s1
+k3d-demo-agent-1    Ready    <none>                 3m6s    v1.25.6+k3s1
+k3d-demo-server-0   Ready    control-plane,master   3m13s   v1.25.6+k3s1
 ```
+
+![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1679825199325-fc0c9142-c209-4949-8798-538ed9927425.png)
 
 `rancher/k3s`镜像也可用于在 Docker 运行的 K3s server 和 agent。
 
@@ -631,7 +670,7 @@ ab7f743a0848   rancher/k3s:v1.25.6-k3s1         "/bin/k3s server --t…"   About
 
 ```shell
 $ docker-compose up --scale agent=3
-    # kubeconfig is written to current dir
+# kubeconfig is written to current dir
 
 $ kubectl --kubeconfig kubeconfig.yaml get node
 NAME           STATUS   ROLES    AGE   VERSION
@@ -668,25 +707,25 @@ sudo reboot
 
 标准的 Raspbian Buster 安装没有启用 `cgroups`。**K3S** 需要`cgroups`来启动 systemd 服务。在`/boot/cmdline.txt`中添加`cgroup_memory=1 cgroup_enable=memory`就可以启用`cgroups`。
 
-### /boot/cmdline.txt 的示例
+### 1.10.1 /boot/cmdline.txt 的示例
 
 ```shell
 console=serial0,115200 console=tty1 root=PARTUUID=58b06195-02 rootfstype=ext4 elevator=deadline fsck.repair=yes rootwait cgroup_memory=1 cgroup_enable=memory
 ```
 
-## 1.11 SELinux 支持
+# 2 SELinux 支持
 
-从 v1.19.4+k3s1 开始支持。从 v1.17.4+k3s1 开始是试验性的。
+*从 v1.19.4+k3s1 开始支持。从 v1.17.4+k3s1 开始是试验性的。*
 
 如果您在默认启用 SELinux 的系统（如 CentOS）上安装 K3s，您必须确保安装了正确的 SELinux 策略。
 
-### 1.11.1 自动安装
+## 2.1 自动安装
 
-从 v1.19.3+k3s2 开始可用。
+*从 v1.19.3+k3s2 开始可用。*
 
 如果在兼容的系统上，如果不执行离线安装，则[安装脚本](https://docs.rancher.cn/docs/k3s/installation/install-options/_index#使用脚本安装的选项)将从 Rancher RPM 存储库自动安装 SELinux RPM。可以通过设置 `INSTALL_K3S_SKIP_SELINUX_RPM=true` 来跳过自动安装。
 
-### 1.11.2 手动安装
+## 2.2 手动安装
 
 可以使用以下命令安装必要的策略：
 
@@ -695,13 +734,46 @@ yum install -y container-selinux selinux-policy-base
 yum install -y https://rpm.rancher.io/k3s/latest/common/centos/7/noarch/k3s-selinux-0.2-1.el7_8.noarch.rpm 
 ```
 
-要强制安装脚本记录警告而不是失败，您可以设置以下环境变量： `INSTALL_K3S_SELINUX_WARN=true`。
+要强制安装脚本记录警告而不是失败，您可以设置以下环境变量：`INSTALL_K3S_SELINUX_WARN=true`。
 
-## 1.12 Red Hat 和 CentOS 的额外准备
+## 2.3 启用和禁用 SELinux Enforcement[#](https://docs.rancher.cn/docs/k3s/advanced/_index#启用和禁用-selinux-enforcement)
 
-建议运行以下命令，关闭 `firewalld`：
+SELinux enforcement 的启用或禁用方式取决于 K3s 的版本。
+
+### 2.3.1 K3s v1.19.1+k3s1[#](https://docs.rancher.cn/docs/k3s/advanced/_index#k3s-v1191k3s1)
+
+要使用 SELinux，请在启动 K3s server 和 agent 时指定`--selinux`标志。
+
+这个选项也可以在 K3s[配置文件](https://docs.rancher.cn/docs/k3s/installation/install-options/_index#配置文件)中指定：
+
+```shell
+selinux: true
+```
+
+不要使用`--disable-selinux`选项。它已经被废弃，在未来的小版本中，它可能会因为被忽略或不被识别，从而导致错误。
+
+在 SELinux 下不支持使用自定义的`--data-dir`。要自定义它，你很可能需要编写自己的自定义策略。为了获得指导，你可以参考[container/container-selinux](https://github.com/containers/container-selinux)资源库，它包含了容器运行时的 SELinux 策略文件，以及[rancher/k3s-selinux](https://github.com/rancher/k3s-selinux)资源库，它包含了 K3s 的 SELinux 策略。
+
+### 2.3.2 V1.19.1+k3s1 之前的 K3s[#](https://docs.rancher.cn/docs/k3s/advanced/_index#v1191k3s1-之前的-k3s)
+
+内置 containerd 会自动启用 SELinux。
+
+要关闭嵌入式 containerd 中的 SELinux enforcement，请使用`--disable-selinux`标志启动 K3s。
+
+在 SELinux 下不支持使用自定义的`--data-dir`。要自定义它，你很可能需要编写自己的自定义策略。为了获得指导，你可以参考[container/container-selinux](https://github.com/containers/container-selinux)资源库，它包含了容器运行时的 SELinux 策略文件，以及[rancher/k3s-selinux](https://github.com/rancher/k3s-selinux)资源库，它包含了 K3s 的 SELinux 策略。
+
+# 3 Red Hat 和 CentOS 的额外准备
+
+建议运行以下命令，关闭 `firewalld`防火墙：
 
 ```shell
 # 在生产环境和测试环境中可以执行firewalld功能
 systemctl disable firewalld --now
+```
+
+如果启用，则需要禁用 `nm-cloud-setup` 并重新启动节点：
+
+```shell
+systemctl disable nm-cloud-setup.service nm-cloud-setup.timer
+reboot
 ```
