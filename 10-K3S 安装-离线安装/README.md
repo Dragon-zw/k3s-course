@@ -231,3 +231,5 @@ rancher/kubectl:v0.17.0
 ```
 
 1. 将必要的 `rancher/k3s-upgrade、rancher/system-upgrade-controller 和 rancher/kubectl` 镜像添加到您的私有镜像仓库中以后 ，就可以按照[K3s 自动升级指南](https://docs.rancher.cn/docs/k3s/upgrades/automated/_index)进行操作。
+
+小总结：升级 K3s 集群，只需要替换对应的 k3s 二进制文件，然后在重启 K3s 集群，需要拉取所对应的 K3s 版本的镜像。
