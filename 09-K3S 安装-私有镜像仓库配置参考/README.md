@@ -62,7 +62,7 @@ Image is up to date for sha256:a24bb4013296f61e89ba57005a7b3e52274d8edd3ae2077d0
 
 ## 1.2 搭建 Harbor 私有镜像仓库
 
-部署Harbor私有镜像仓库
+### 1.2.1 部署Harbor私有镜像仓库
 
 ```shell
 # Step1: 安装Docker容器运行时环境
@@ -94,7 +94,7 @@ https: # 后续进行编写
 harbor_admin_password: Harbor12345
 ```
 
-#### Harbor 证书的TLS创建
+### 1.2.2 Harbor 证书的TLS创建
 
 ```shell
 $ mkdir -pv harbor/ssl ; cd harbor/ssl
@@ -177,7 +177,7 @@ $ vim ./harbor/harbor.yml
     private_key: /root/harbor/ssl/reg.kubesphere.com-key.pem
 ```
 
-#### 部署 Harbor 镜像仓库
+### 1.2.3 部署 Harbor 镜像仓库
 
 3、重新配置并部署Harbor
 
@@ -234,7 +234,7 @@ $ docker push reg.kubesphere.com/k3s/nginx:latest
 
 ![img](https://cdn.nlark.com/yuque/0/2023/png/2555283/1680011458468-8b7a3793-9cf6-4c08-9ed8-f5429023ab58.png)
 
-#### 基础环境
+### 1.24 基础环境
 
 ```shell
 # K3s Master
@@ -255,7 +255,7 @@ local-path (default)   rancher.io/local-path   Delete          WaitForFirstConsu
 
 ## 1.3 使用 TLS
 
-#### 证书颁发机构颁发的证书
+### 1.3.1 证书颁发机构颁发的证书
 
 ```yaml
 cat >> /etc/rancher/k3s/registries.yaml <<EOF
@@ -276,7 +276,7 @@ $ systemctl restart k3s
 $ crictl pull reg.kubesphere.com/k3s/nginx:latest
 ```
 
-#### 自签名证书
+### 1.3.2 自签名证书
 
 ```yaml
 cat >> /etc/rancher/k3s/registries.yaml <<EOF
